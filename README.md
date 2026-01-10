@@ -14,6 +14,7 @@ Instagram Reels, and TikTok.
 ### Core Features
 
 - Extracts YouTube **Most Replayed (heatmap)** segments
+- **AI Fallback Detection**: Uses AI transcription analysis when heatmap unavailable
 - Automatically selects **high-engagement moments**
 - Configurable **pre and post padding** for each clip
 - Outputs **9:16 vertical video format** (720x1280)
@@ -31,6 +32,7 @@ Instagram Reels, and TikTok.
 - Support for Indonesian language (and 99+ languages)
 - Multiple model sizes: tiny, base, small, medium, large
 - Automatic transcription and subtitle burning
+- **Progress indicators** with time estimates during transcription
 - Customizable subtitle style
 
 ---
@@ -38,18 +40,29 @@ Instagram Reels, and TikTok.
 ## How It Works
 
 1. **Parse Heatmap Data**: Fetches YouTube watch page and extracts "Most Replayed" markers
-2. **Filter Segments**: Identifies high-engagement moments based on score threshold
-3. **User Selection**: Interactive menu for crop mode and subtitle preferences
-4. **Smart Download**: Downloads only the required time ranges (with padding)
-5. **Video Processing**:
+2. **AI Fallback** (if heatmap unavailable):
+   - Downloads full video audio
+   - Transcribes entire video using Faster-Whisper
+   - Shows progress bar with time estimates (if tqdm installed)
+   - Analyzes transcription for engagement patterns:
+     - Excitement keywords (wow, amazing, incredible, etc.)
+     - Question patterns (engagement hooks)
+     - Repetition detection (emphasized points)
+     - Optimal duration (5-30 seconds)
+     - Speaking pace analysis
+3. **Filter Segments**: Identifies high-engagement moments based on score threshold
+4. **User Selection**: Interactive menu for crop mode and subtitle preferences
+5. **Smart Download**: Downloads only the required time ranges (with padding)
+6. **Video Processing**:
    - Scales to 1920px width (maintains aspect ratio)
    - Applies selected crop mode (center, split-left, or split-right)
    - Converts to 720x1280 vertical format
-6. **AI Transcription** (optional):
+7. **AI Transcription** (optional):
    - Transcribes audio using Faster-Whisper
+   - Shows progress bar with time estimates (if tqdm installed)
    - Generates SRT subtitle file
    - Burns subtitles with customizable style
-7. **Export**: Saves optimized MP4 clips ready for social media
+8. **Export**: Saves optimized MP4 clips ready for social media
 
 ---
 
@@ -64,6 +77,7 @@ Instagram Reels, and TikTok.
 - `requests` - HTTP requests
 - `yt-dlp` - YouTube video downloader
 - `faster-whisper` - AI transcription (optional, for subtitles)
+- `tqdm` - Progress bars for transcription (optional, but recommended)
 
 ### Hardware Requirements:
 
@@ -93,14 +107,16 @@ pip install requests yt-dlp
 **Full installation** (with AI subtitle support):
 
 ```bash
-pip install requests yt-dlp faster-whisper
+pip install requests yt-dlp faster-whisper tqdm
 ```
 
-Or use requirements file if available:
+Or use requirements file (recommended):
 
 ```bash
 pip install -r requirements.txt
 ```
+
+> **Note**: `tqdm` is optional but highly recommended for progress bars during transcription. The script will work without it but won't show progress indicators.
 
 ### 3. Install FFmpeg
 
@@ -220,6 +236,8 @@ Processing clips with 10s pre-padding and 10s post-padding.
   Cropping video...
   Generating subtitle...
   ✅ Model loaded. Transcribing audio...
+  Transcribing |████████████| 12/12 [0:05<00:00]
+  ✅ Transcribed in 5s (12 segments)
   Burning subtitle to video...
 Clip successfully generated.
 ```
@@ -228,9 +246,36 @@ Generated clips will be saved in the `clips/` directory.
 
 ---
 
+## Project Structure
+
+The project is organized into modular components:
+
+```
+yt-heatmap-clipper/
+├── config.py              # Configuration constants
+├── youtube_utils.py       # YouTube URL parsing, heatmap, duration
+├── subtitle_utils.py      # Subtitle generation and formatting
+├── ai_detection.py        # AI-based engagement detection
+├── clip_processor.py      # Clip downloading and processing
+├── run.py                 # Main entry point
+├── requirements.txt       # Python dependencies
+└── clips/                 # Output directory (auto-created)
+```
+
+### Module Descriptions
+
+- **`config.py`**: All configurable constants (output settings, crop modes, subtitle options, AI settings)
+- **`youtube_utils.py`**: YouTube-specific utilities (video ID extraction, heatmap fetching, duration retrieval)
+- **`subtitle_utils.py`**: Subtitle generation using Faster-Whisper, time formatting, model size utilities
+- **`ai_detection.py`**: AI-based engagement detection when heatmap is unavailable (with progress indicators)
+- **`clip_processor.py`**: Core video processing (download, crop, subtitle burning, export)
+- **`run.py`**: Main orchestration (user interaction, dependency checks, workflow control)
+
+---
+
 ## Configuration
 
-You can modify these settings at the top of `run.py`:
+You can modify these settings in `config.py`:
 
 ### Basic Settings
 
@@ -269,6 +314,23 @@ WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
 | **large-v3** | 2.9 GB | ~6 GB   | ~90-120s    | Best      | Production quality      |
 
 > **Recommendation**: Use `tiny` for speed, `small` for quality balance
+
+### AI Fallback Settings
+
+```python
+USE_AI_FALLBACK = True    # Use AI-based detection when heatmap unavailable
+AI_MIN_SCORE = 0.50       # Minimum AI engagement score (0.0-1.0)
+```
+
+> **Note**: AI fallback requires Whisper. It will auto-enable if needed.
+
+**How AI Detection Works:**
+
+- Analyzes transcription for excitement keywords (wow, amazing, etc.)
+- Detects question patterns (engagement hooks)
+- Identifies repetition (emphasized points)
+- Scores optimal duration (5-30 seconds preferred)
+- Evaluates speaking pace (2-5 words/second optimal)
 
 ---
 
@@ -350,8 +412,17 @@ sudo apt install ffmpeg
 
 ### No high-engagement segments found
 
+**If heatmap unavailable:**
+
 - Video might not have "Most Replayed" data yet (needs views/engagement)
+- Enable `USE_AI_FALLBACK = True` for AI-based detection
+- AI fallback will transcribe full video and analyze for engagement patterns
+- Note: AI analysis takes longer but works for any video
+
+**If heatmap available but no segments:**
+
 - Try lowering `MIN_SCORE` (e.g., from 0.40 to 0.30)
+- For AI fallback, try lowering `AI_MIN_SCORE` (e.g., from 0.50 to 0.40)
 - Check if video URL is correct
 
 ### Subtitle generation fails
@@ -395,15 +466,48 @@ sudo apt install ffmpeg
 - Increase `MIN_SCORE = 0.50` for only peak moments
 - Use `tiny` model to match quick content style
 
+### When Heatmap Unavailable (AI Fallback)
+
+- **Enable AI Fallback**: Set `USE_AI_FALLBACK = True`
+- **For New Videos**: AI works even without viewer engagement data
+- **Processing Time**: First-time transcription takes 2-5 minutes (depends on video length)
+- **Progress Tracking**: Install `tqdm` to see real-time progress with time estimates
+- **Model Selection**: Use `tiny` or `base` for faster AI analysis
+- **Score Tuning**: Adjust `AI_MIN_SCORE` (0.40-0.60) based on results
+  - Lower (0.40) = More segments, may include less engaging parts
+  - Higher (0.60) = Fewer segments, only most engaging moments
+- **Best For**: New videos, low-view videos, or videos without heatmap data
+
+**Example AI Fallback Output:**
+
+```
+📊 Heatmap data not available.
+🔄 Falling back to AI-based engagement detection...
+   This will transcribe the full video (may take a few minutes).
+
+Proceed with AI analysis? (y/n): y
+
+📥 Downloading audio track...
+🎤 Transcribing full video with AI...
+   Using model: tiny
+   Estimated time: ~2m 30s
+  Transcribing |████████████████████| 127/127 [2:15<00:00, ETA: 0s]
+✅ Transcription complete! (127 segments)
+🧠 Analyzing segments for engagement patterns...
+✅ Found 8 high-engagement segments using AI analysis!
+   Top score: 0.75
+```
+
 ### Subtitle Customization
 
-Edit line ~368 in `run.py` to customize subtitle style:
+Edit the subtitle style in `clip_processor.py` (around line 143) to customize appearance:
 
 ```python
 # Current style (white text, black outline):
-BorderStyle=1,Outline=3,Shadow=2,MarginV=30
+force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'
 
-# Large text:
+# Customization examples:
+# Larger text:
 FontSize=28,Outline=4
 
 # Position higher (avoid facecam):
@@ -411,7 +515,12 @@ MarginV=400
 
 # Different color (yellow):
 PrimaryColour=&H00FFFF
+
+# Remove background box (transparent):
+BorderStyle=1  # Use 1 for outline only, 3 for opaque box
 ```
+
+> **Note**: After modifying `clip_processor.py`, restart the script for changes to take effect.
 
 ---
 
